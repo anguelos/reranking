@@ -120,11 +120,13 @@ def fname2Array(fname):
         return cv2.imread(fname,cv2.IMREAD_GRAYSCALE)/255.0
     else: #assuming csv
         print "FROM CSV"
-        return np.genfromtxt(fname, delimiter=',')
+        res= np.genfromtxt(fname, delimiter=',')
+        print res[:8,:]
+        return res
 
 
 def array2csvFname(arr,csvFname):
-    np.savetxt(csvFname,arr, delimiter=',')
+    np.savetxt(csvFname,arr, '%9.5f',delimiter=',')
 
 def array2pngFname(arr,pngFname):
     cv2.imwrite(pngFname,(arr*255).astype('uint8'),[cv2.IMWRITE_PNG_COMPRESSION ,0])
@@ -181,13 +183,14 @@ def getConfidenceForAll(hm,prop):
     res=np.array([tup[1]+(tup[0],) for tup in sorted([(max(confidenceDict[rec]),rec) for rec in confidenceDict.keys()],reverse=True)])
     return res
 
-switches={'maxProposalsIoU':'0',#IoU over this are not computed
+switches={'maxProposalsIoU':'20000',#IoU over this are not computed
 'threads':'1',
 'dontCareDictFile':'',
 'IoUThresholds':'[.5]',
 'extraPlotDirs':'{".":"Confidence"}',
 'care':'True', #If true dont cares are supressed
-'bayesianFname':'/tmp/bayesian/'
+'bayesianFname':'/tmp/bayesian/',
+'plotter':'plt.semilogx'
 }
 
 
@@ -244,7 +247,7 @@ if __name__=='__main__':
         def worker(confFname):
             t=time.time()
             confMat=fname2Array(confFname)
-            idx=np.argsort(confMat[:,4])
+            idx=np.argsort(-confMat[:,4])
             confMat=confMat[idx,:]
             #confMat=confMat[reversed(idx),:]#UGLY!!!!!!!!!!!!!!!!!!!!!!!!!!
             gtMat,transcriptions=loadTxtGtFile(getGtFromConf(confFname))
@@ -277,15 +280,15 @@ if __name__=='__main__':
             confidenceDict=defaultdict(list)
             for rectId in range(proposals.shape[0]):
                 rect=tuple(propRects[rectId,:])
-                confidenceDict[rect].append(-proposals[rectId,5])
-            newProds=sorted([(max(confidenceDict[rec]),rec) for rec in confidenceDict.keys()])
-            arr=np.array([list(s[1])+list([-s[0]]) for s in newProds],dtype='float')
+                confidenceDict[rect].append(proposals[rectId,4])
+            newProds=reversed(sorted([(max(confidenceDict[rec]),rec) for rec in confidenceDict.keys()]))
+            arr=np.array([list(s[1])+list([s[0]]) for s in newProds],dtype='float')
             array2csvFname(arr,getConfidenseFromProposal(propFname))
         createRequiredDirs(sys.argv[2:],'+../conf_')
-        #pool=Pool(int(switches['threads']))
-        #print pool.map(worker,sys.argv[2:])
-        for fname in sys.argv[2:]:
-            worker(fname)
+        pool=Pool(int(switches['threads']))
+        print pool.map(worker,sys.argv[2:])
+        #for fname in sys.argv[2:]:
+        #    worker(fname)
         sys.exit(0)
 
 
@@ -328,7 +331,7 @@ if __name__=='__main__':
                 print IoU.shape
                 resGtObjCount+=IoU.shape[1]
                 #dontCare=augmentedIoU[:-1,:]
-                #IoU[:,np.argmax(IoU,axis=1)]*=2#removin non xamimal matches (a proposal identifies at most an object)
+                #IoU[:,np.argmax(IoU,axis=1)]*=2#removin non maximal matches (a proposal identifies at most an object)
                 #IoU-=augmentedIoU[:keepProposals,:]
                 for tNum in range(len(iouThr)):
                     thr=iouThr[tNum]
@@ -342,18 +345,19 @@ if __name__=='__main__':
         sortedKeysByLegends=[e[1][0] for e in sorted([(confDict[k],(k,confDict[k])) for k in confDict.keys()])]
         for confStr in sortedKeysByLegends:
             #plt.plot(resGtObjDetected[confStr].astype('float')/(resGtObjCount/len(confDict.keys())),label=confDict[confStr])
-            plt.semilogx(resGtObjDetected[confStr].astype('float')/(resGtObjCount/len(confDict.keys())),label=confDict[confStr])
+            eval(switches['plotter'])(resGtObjDetected[confStr].astype('float')/(resGtObjCount/len(confDict.keys())),label=confDict[confStr])
             #plt.legend(confDict[confStr])
         plt.legend()
         plt.show()
 
-    if sys.argv[1]=='dbgIou':
+    if sys.argv[1]=='dbgIoU':
         for confFname in sys.argv[2:]:
             IoU=fname2Array(getIouFromConf(confFname))
             dontCare=IoU[-1,:]
             gt,transcr=loadTxtGtFile(getGtFromConf(confFname))
             gt=gt.astype('int32')
-            conf=fname2Array(confFname).astype('int32')
+            conf=fname2Array(confFname).astype('float')
+            print conf[:10,:]
             image=cv2.imread(getInputFromConf(confFname),cv2.IMREAD_COLOR)
             gtImage=image.copy()
             for k in range(gt.shape[0]):
@@ -363,10 +367,12 @@ if __name__=='__main__':
                     gtImage=cv2.rectangle(gtImage,(gt[k,0],gt[k,1]),(gt[k,0]+gt[k,2],gt[k,1]+gt[k,3]),(0,0,255))
             cv2.namedWindow('DBG')
             print gt
+            c=conf.astype('int32')
             for k in range(100):
                 fgImage=gtImage.copy()
                 print 'PROP # ',k,'  ',IoU[k,:].max(),' ',transcr[np.argmax(IoU[k,:])],' @ ',np.argmax(IoU[k,:])
-                fgImage=cv2.rectangle(fgImage,(conf[k,0],conf[k,1]),(conf[k,0]+conf[k,2],conf[k,1]+conf[k,3]),(0,255,0))
+                print conf[k,:]
+                fgImage=cv2.rectangle(fgImage,(c[k,0],c[k,1]),(c[k,0]+c[k,2],c[k,1]+c[k,3]),(0,255,0))
                 cv2.imshow('DBG',fgImage);cv2.waitKey()
 
 

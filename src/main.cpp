@@ -171,7 +171,7 @@ int main( int argc, char** argv )
 
              cout << dendrogram[k].rect.x*ml << "," << dendrogram[k].rect.y*ml << ","
                   << dendrogram[k].rect.width*ml << "," << dendrogram[k].rect.height*ml << ","
-                  << (float)dendrogram[k].probability*-1 <<","
+                  << (float)dendrogram[k].probability <<","
 		  <<chIdCounter<<","
 		  <<k * maxChId +chIdCounter<< "," 
 		  <<dendrogram[k].node1*maxChId+chIdCounter<<"," //nodeId1
