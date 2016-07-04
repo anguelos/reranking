@@ -71,6 +71,24 @@ def getInputFromConf(confFname):
     return '/'.join(pathList)[:-3]+'jpg'
 
 
+def getThresholdFromHm(hmFname,outDir):
+    pathList=hmFname.split('/')
+    pathList[-2]=outDir+pathList[-2]
+    return '/'.join(pathList)[:-3]+'csv'
+
+
+def getProposalFromConf(hmFname):
+    pathList=hmFname.split('/')
+    pathList[-2]='proposals'
+    return '/'.join(pathList)[:-3]+'csv'
+
+
+def getConfFromHm(hmFname):
+    pathList=hmFname.split('/')
+    pathList[-2]='proposals'
+    return '/'.join(pathList)[:-3]+'csv'
+
+
 def getIouFromConf(confFname):
     pathList=confFname.split('/')
     pathList[-2]='iou_'+pathList[-2]
@@ -190,7 +208,8 @@ switches={'maxProposalsIoU':'20000',#IoU over this are not computed
 'extraPlotDirs':'{".":"Confidence"}',
 'care':'True', #If true dont cares are supressed
 'bayesianFname':'/tmp/bayesian/',
-'plotter':'plt.semilogx'
+'plotter':'plt.semilogx',
+'thr':'0.1'
 }
 
 
@@ -198,7 +217,6 @@ if __name__=='__main__':
     hlp="""
     hm2conf blabla/*/heatma.../*.csv 
     hm2conf blabla/*/heatma.../*.png 
-    
     img2prop blabla/*/input/*.jpg 
     """
     params=[(len(p)>0 and p[0]!='-',p) for p in sys.argv]
@@ -234,6 +252,7 @@ if __name__=='__main__':
             t=time.time()
             open(getProposalFromImage(imageFname),'w').write(go(proposalCmdPath+' '+imageFname))
             print imageFname, ' to ', getProposalFromImage(imageFname), ' ', int((time.time()-t)*1000)/1000.0,' sec.'
+        createRequiredDirs(sys.argv[2:],'../proposals')
         pool=Pool(int(switches['threads']))
         print pool.map(worker,sys.argv[2:])
         sys.exit(0)
@@ -268,8 +287,34 @@ if __name__=='__main__':
         sys.exit(0)
 
 
-    if sys.argv[1]=='supress':
-        pass
+    if sys.argv[1]=='hmThr':
+        outDir='../conf_thr%02d_'%int(eval(switches['thr'])*100)
+        def worker(hmFname):
+            thr=eval(switches['thr'])
+            thrFname=getThresholdFromHm(hmFname,thr)
+            proposals=fname2Array(getProposalFromConf(hmFname))[:,:5]
+            hmconf=fname2Array(getConfFromHm(hmFname))
+            #propDict=defaultdict(list)
+#            hmDict=defaultdict(list)
+            hmDict=dict([(tuple(hmconf[k,:4]),hmconf[k,4]) for k in range(hmconf.shape[0])])
+            propDict=dict([(tuple(proposals[k,:4]),proposals[k,4]) for k in range(proposals.shape[0])])
+            if set(hmDict.keys())!=set(propDict.keys()):
+                raise Exception("")
+            weakThrMat=np.empty([len(hmDict.keys()),6])
+            rectList=hmDict.keys()
+            for rectId in range(len(hmDict)):
+                r=rectList[rectId]
+                weakThrMat[rectId,:]=r+(propDict[r],hmDict[r])
+            weakThrMat[:,4]*=(weakThrMat[:,5]>thr)
+            idx=np.argsort(-weakThrMat[:,4])
+            weakThrMat=weakThrMat[idx,:]
+            array2csvFname(weakThrMat,thrFname)
+        createRequiredDirs(sys.argv[2:],'+'+outDir)
+        pool=Pool(int(switches['threads']))
+        print pool.map(worker,sys.argv[2:])
+        #for f in sys.argv[2:]:
+        #    worker(f)
+        sys.exit(0)
 
 
 
@@ -349,6 +394,7 @@ if __name__=='__main__':
             #plt.legend(confDict[confStr])
         plt.legend()
         plt.show()
+    sys.exit(0)
 
     if sys.argv[1]=='dbgIoU':
         for confFname in sys.argv[2:]:
