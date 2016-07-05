@@ -80,12 +80,12 @@ def getThresholdFromHm(hmFname,outDir):
 def getProposalFromConf(hmFname):
     pathList=hmFname.split('/')
     pathList[-2]='proposals'
-    return '/'.join(pathList)[:-3]+'csv'
+    return ('/'.join(pathList)) [:-3]+'csv'
 
 
 def getConfFromHm(hmFname):
     pathList=hmFname.split('/')
-    pathList[-2]='proposals'
+    pathList[-2]='conf_'+pathList[-2]
     return '/'.join(pathList)[:-3]+'csv'
 
 
@@ -288,10 +288,10 @@ if __name__=='__main__':
 
 
     if sys.argv[1]=='hmThr':
-        outDir='../conf_thr%02d_'%int(eval(switches['thr'])*100)
+        outDir='conf_thr%02d_'%int(eval(switches['thr'])*100)
         def worker(hmFname):
             thr=eval(switches['thr'])
-            thrFname=getThresholdFromHm(hmFname,thr)
+            thrFname=getThresholdFromHm(hmFname,outDir)
             proposals=fname2Array(getProposalFromConf(hmFname))[:,:5]
             hmconf=fname2Array(getConfFromHm(hmFname))
             #propDict=defaultdict(list)
@@ -300,19 +300,20 @@ if __name__=='__main__':
             propDict=dict([(tuple(proposals[k,:4]),proposals[k,4]) for k in range(proposals.shape[0])])
             if set(hmDict.keys())!=set(propDict.keys()):
                 raise Exception("")
-            weakThrMat=np.empty([len(hmDict.keys()),6])
+            weakThrMat=np.empty([len(hmDict.keys()),7])
             rectList=hmDict.keys()
             for rectId in range(len(hmDict)):
                 r=rectList[rectId]
-                weakThrMat[rectId,:]=r+(propDict[r],hmDict[r])
+                weakThrMat[rectId,:]=r+(propDict[r],hmDict[r],propDict[r])
             weakThrMat[:,4]*=(weakThrMat[:,5]>thr)
             idx=np.argsort(-weakThrMat[:,4])
             weakThrMat=weakThrMat[idx,:]
             array2csvFname(weakThrMat,thrFname)
-        createRequiredDirs(sys.argv[2:],'+'+outDir)
+        createRequiredDirs(sys.argv[2:],'+../'+outDir)
         pool=Pool(int(switches['threads']))
         print pool.map(worker,sys.argv[2:])
         #for f in sys.argv[2:]:
+        #    print "F:",f
         #    worker(f)
         sys.exit(0)
 
