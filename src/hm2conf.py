@@ -11,6 +11,8 @@ import sys
 import time
 import numpy.matlib
 from collections import defaultdict
+import cPickle
+import scipy.stats
 
 sys.path.append('/home/anguelos/work/projects/opencv_gsoc/build/lib/')
 import cv2
@@ -201,29 +203,33 @@ def getConfidenceForAll(hm,prop):
     res=np.array([tup[1]+(tup[0],) for tup in sorted([(max(confidenceDict[rec]),rec) for rec in confidenceDict.keys()],reverse=True)])
     return res
 
+def mapper(worker,fname):
+    pass
+
 switches={'maxProposalsIoU':'20000',#IoU over this are not computed
 'threads':'1',
 'dontCareDictFile':'',
 'IoUThresholds':'[.5]',
 'extraPlotDirs':'{".":"Confidence"}',
 'care':'True', #If true dont cares are supressed
-'bayesianFname':'/tmp/bayesian/',
+'bayesianFname':'/tmp/bayesian.cPickle',
 'plotter':'plt.semilogx',
 'thr':'0.1'
 }
 
 
+
 if __name__=='__main__':
     hlp="""
-    hm2conf blabla/*/heatma.../*.csv 
-    hm2conf blabla/*/heatma.../*.png 
-    img2prop blabla/*/input/*.jpg 
+    hm2conf blabla/*/heatma.../*.csv
+    hm2conf blabla/*/heatma.../*.png
+    img2prop blabla/*/input/*.jpg
     """
     params=[(len(p)>0 and p[0]!='-',p) for p in sys.argv]
     sys.argv=[p[1] for p in params if p[0]]
     switches.update(dict([p[1][1:].split('=') for p in params if not p[0]]))
     print 'Threads',int(switches['threads'])
-    
+
     if sys.argv[1]=='hm2conf':
         createRequiredDirs(sys.argv[2:],'+../conf_')
         def worker(heatmapFname):
@@ -302,7 +308,7 @@ if __name__=='__main__':
                 raise Exception("")
             weakThrMat=np.empty([len(hmDict.keys()),7])
             rectList=hmDict.keys()
-            for rectId in range(len(hmDict)):
+            for rectId in range(len(rectList)):
                 r=rectList[rectId]
                 weakThrMat[rectId,:]=r+(propDict[r],hmDict[r],propDict[r])
             weakThrMat[:,4]*=(weakThrMat[:,5]>thr)
@@ -312,9 +318,32 @@ if __name__=='__main__':
         createRequiredDirs(sys.argv[2:],'+../'+outDir)
         pool=Pool(int(switches['threads']))
         print pool.map(worker,sys.argv[2:])
-        #for f in sys.argv[2:]:
-        #    print "F:",f
-        #    worker(f)
+        sys.exit(0)
+
+
+    if sys.argv[1]=='hmMultWeak':
+        outDir='conf_multWeak_'
+        thr=eval(switches['thr'])
+        def worker(hmFname):
+            thrFname=getThresholdFromHm(hmFname,outDir)
+            proposals=fname2Array(getProposalFromConf(hmFname))[:,:5]
+            hmconf=fname2Array(getConfFromHm(hmFname))
+            hmDict=dict([(tuple(hmconf[k,:4]),hmconf[k,4]) for k in range(hmconf.shape[0])])
+            propDict=dict([(tuple(proposals[k,:4]),proposals[k,4]) for k in range(proposals.shape[0])])
+            if set(hmDict.keys())!=set(propDict.keys()):
+                raise Exception("")
+            weakThrMat=np.empty([len(hmDict.keys()),7])
+            rectList=hmDict.keys()
+            for rectId in range(len(hmDict)):
+                r=rectList[rectId]
+                weakThrMat[rectId,:]=r+(propDict[r],hmDict[r],propDict[r])
+            weakThrMat[:,4]=((weakThrMat[:,6])**(1-thr)/.5)*((weakThrMat[:,5])**(thr/.5))
+            idx=np.argsort(-weakThrMat[:,4])
+            weakThrMat=weakThrMat[idx,:]
+            array2csvFname(weakThrMat,thrFname)
+        createRequiredDirs(sys.argv[2:],'+../'+outDir)
+        pool=Pool(int(switches['threads']))
+        print pool.map(worker,sys.argv[2:])
         sys.exit(0)
 
 
@@ -322,7 +351,7 @@ if __name__=='__main__':
     if sys.argv[1]=='prop2conf':
         def worker(propFname):
             proposals=fname2Array(propFname)
-            propRects=proposals[:,:4].astype('int32')
+            propRects=proposals[:,:4]#.astype('int32')
             confidenceDict=defaultdict(list)
             for rectId in range(proposals.shape[0]):
                 rect=tuple(propRects[rectId,:])
@@ -395,7 +424,7 @@ if __name__=='__main__':
             #plt.legend(confDict[confStr])
         plt.legend()
         plt.show()
-    sys.exit(0)
+        sys.exit(0)
 
     if sys.argv[1]=='dbgIoU':
         for confFname in sys.argv[2:]:
@@ -423,14 +452,66 @@ if __name__=='__main__':
                 cv2.imshow('DBG',fgImage);cv2.waitKey()
 
 
+
     if sys.argv[1]=='trainBayesian':
-        bayes=GaussianNB()
-        matList=[]
-        for gtFname in sys.argv[2:]:
-            gtMat,transcriptions=loadTxtGtFile(gtFname)
-            gtMat.append(gtMat)
-        nbObjects=sum([gtMat.shape[0] for gtMat in matList])
-        outputData
+        print "BAYESIAN"
+        #for the moment it only records rectangles
+        bayesFname=switches['bayesianFname']
+        features=np.empty([0,4])
+        gtMatList=[]
+        for gtName in sys.argv[2:]:
+            gtMatList.append(loadTxtGtFile(gtName)[0])
+        features=np.concatenate(gtMatList,axis=0)
+        print 'Saving to ',bayesFname
+        cPickle.dump(features,open(bayesFname,'w'))
+        sys.exit(0)
+
+
+
+    if sys.argv[1]=='testBayesian':
+        bayesFname=(switches['bayesianFname'])
+        trainData=cPickle.load(open(bayesFname))
+        widthMean=trainData[:,2].mean()
+        widthStd=trainData[:,2].std()
+        heightMean=trainData[:,3].mean()
+        heightStd=trainData[:,3].std()
+        longMean=(trainData[:,2]/trainData[:,3]).mean()
+        longStd=(trainData[:,2]/trainData[:,3]).std()
+        outDir='conf_bayes_'
+        thr=eval(switches['thr'])
+        def worker(hmFname):
+            bayesConfFname=getThresholdFromHm(hmFname,outDir)
+            proposals=fname2Array(getProposalFromConf(hmFname))[:,:5]
+            hmconf=fname2Array(getConfFromHm(hmFname))
+            hmDict=dict([(tuple(hmconf[k,:4]),hmconf[k,4]) for k in range(hmconf.shape[0])])
+            propDict=dict([(tuple(proposals[k,:4]),proposals[k,4]) for k in range(proposals.shape[0])])
+            if set(hmDict.keys())!=set(propDict.keys()):
+                raise Exception("")
+            weakThrMat=np.empty([len(hmDict.keys()),10])
+            rectList=hmDict.keys()
+            for rectId in range(len(hmDict)):
+                r=rectList[rectId]
+                weakThrMat[rectId,:]=r+(propDict[r],hmDict[r],propDict[r])+(0,0,0)
+            #widthProb=scipy.stats.norm.cdf((weakThrMat[:,2]-widthMean)/widthStd)
+            #heightProb=scipy.stats.norm.cdf((weakThrMat[:,3]-heightMean)/heightStd)
+            #longProb=scipy.stats.norm.cdf(((weakThrMat[:,2]/weakThrMat[:,3])-longMean)/longStd)
+            widthProb=scipy.stats.norm.pdf((weakThrMat[:,2]-widthMean)/widthStd)
+            heightProb=scipy.stats.norm.pdf((weakThrMat[:,3]-heightMean)/heightStd)
+            longProb=scipy.stats.norm.pdf(((weakThrMat[:,2]/weakThrMat[:,3])-longMean)/longStd)
+            weakThrMat[:,7]=widthProb
+            weakThrMat[:,8]=heightProb
+            weakThrMat[:,9]=longProb
+            weakThrMat[:,4]=weakThrMat[:,5]*((widthProb*heightProb*longProb)/(widthProb*heightProb*longProb+(1-widthProb)*(1-heightProb)*(1-longProb)))
+            idx=np.argsort(-weakThrMat[:,4])
+            weakThrMat=weakThrMat[idx,:]
+            array2csvFname(weakThrMat,bayesConfFname)
+        createRequiredDirs(sys.argv[2:],'+../'+outDir)
+        pool=Pool(int(switches['threads']))
+        #for fname in sys.argv[2:]:
+        #    worker(fname)
+        #sys.exit(0)
+        print pool.map(worker,sys.argv[2:])
+        sys.exit(0)
 
     print hlp
     print "unrecognised mode "+sys.argv[1]+" Aborting"

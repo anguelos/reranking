@@ -41,11 +41,17 @@ def generateThresholds(root,thresholdList):
         for hm in getHeatmaps(root):
             print './src/hm2conf.py -thr='+str(threshold)+' -threads=10 hmThr '+root+'/'+hm+'/*'
 
+def generateFusion(root,thresholdList):
+    for threshold in thresholdList:
+        for hm in getHeatmaps(root):
+            print './src/hm2conf.py -thr='+str(threshold)+' -threads=10 hmThr '+root+'/'+hm+'/*'
+
+
 def generateIoU(root):
     for conf in getConf(root):
         print './src/hm2conf.py -threads=10 conf2IoU '+root+'/'+conf+'/*'
 
-
+# ./src/hm2conf.py  '-extraPlotDirs={".":"Weak Classifier","conf_hmCoco":"FCN COCO","conf_thr60_hmCoco":"FCN COCO > 0.60","conf_thr40_hmCoco":"FCN COCO > 0.4"}'  getCumRecall ./blabla/icdar_ch4_val/conf_proposals/img_* -maxProposalsIoU=100000 -care=1
 if __name__=='__main__':
     if sys.argv[1]=='all':
         for dsName in sys.argv[2:]:
